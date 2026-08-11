@@ -17,6 +17,7 @@ import html
 import os
 import sqlite3
 import threading
+import time
 import urllib.parse
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -26,6 +27,9 @@ import scanmesh as sm
 DB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scanmesh.db")
 ZAP_BASE = os.environ.get("SCANMESH_ZAP", "http://127.0.0.1:8090")
 ZAP_KEY = os.environ.get("SCANMESH_ZAP_KEY", "scanmesh123")
+# optional: set to a tshark interface (e.g. "\Device\NPF_Loopback") to attach
+# packet-capture evidence to web scans; unset = skip capture (default).
+CAPTURE_IFACE = os.environ.get("SCANMESH_CAPTURE_IFACE")
 
 
 def db() -> sqlite3.Connection:
@@ -63,6 +67,13 @@ def _benign_url(url: str) -> str:
 def run_scan(scan_id: int, target: str, kind: str) -> None:
     findings: list[sm.Finding] = []
     notes = []
+    cap, pcap = None, None
+    if CAPTURE_IFACE:  # optional evidence capture spanning the scan window
+        pcap = os.path.join(os.path.dirname(DB), f"cap_{scan_id}.pcap")
+        try:
+            cap = sm.capture_start(CAPTURE_IFACE, pcap)
+        except Exception as e:
+            notes.append(f"capture start: {e}")
     try:
         findings += sm.parse_nmap_xml(sm.run_nmap(_host(target)))
         if kind == "web":
@@ -78,10 +89,24 @@ def run_scan(scan_id: int, target: str, kind: str) -> None:
                         findings += sm.parse_sqlmap_log(log, clean)
             except Exception as e:  # ZAP daemon down / sqlmap missing
                 notes.append(f"web stage: {e}")
+        if cap:  # stop capture, attach packet evidence for the target host
+            cap.terminate()
+            time.sleep(1)
+            try:
+                ev = sm.parse_tshark_evidence(sm.tshark_fields(pcap), _host(target))
+                if ev:
+                    findings.append(sm.Finding("tshark", _host(target),
+                        "Traffic Evidence", "info", ev[:1000]))
+            except Exception as e:
+                notes.append(f"tshark: {e}")
+            cap = None
         findings = sm.correlate(findings)
         status = "done" + (f" ({'; '.join(notes)})" if notes else "")
     except Exception as e:
         status = f"error: {e}"
+    finally:
+        if cap:
+            cap.terminate()
 
     c = db()
     for f in findings:
@@ -132,7 +157,10 @@ def index_page() -> bytes:
         f"<td>{html.escape(cr)}</td>"
         f"<td><a href='/scan?id={i}'>report</a></td></tr>"
         for i, t, k, st, cr in rows) or "<tr><td colspan=6>no scans yet</td></tr>"
-    page = f"""<!doctype html><meta charset=utf-8><title>ScanMesh</title>{INDEX_CSS}
+    # auto-refresh only while something is running, so the demo updates itself
+    refresh = "<meta http-equiv=refresh content=4>" if any(
+        r[3] == "running" for r in rows) else ""
+    page = f"""<!doctype html><meta charset=utf-8><title>ScanMesh</title>{refresh}{INDEX_CSS}
 <h1>ScanMesh</h1><p>Authorized targets only.</p>
 <form method=post action=/scan>
  <input name=target placeholder="192.168.1.10  or  http://host/path" required>
@@ -164,10 +192,17 @@ class Handler(BaseHTTPRequestHandler):
         if u.path == "/":
             self._send(index_page())
         elif u.path == "/scan":
-            sid = int(urllib.parse.parse_qs(u.query).get("id", [0])[0])
+            raw = urllib.parse.parse_qs(u.query).get("id", ["0"])[0]
+            if not raw.isdigit():
+                return self._send(b"bad scan id", 400)
+            sid = int(raw)
+            c = db()
+            row = c.execute("SELECT target FROM scans WHERE id=?", (sid,)).fetchone()
+            c.close()
+            label = f"{row[0]} (scan #{sid})" if row else f"scan #{sid}"
             findings = _load_findings(sid)
             steps = sm.next_steps(findings)
-            self._send(sm.render_report(findings, f"scan #{sid}", steps).encode())
+            self._send(sm.render_report(findings, label, steps).encode())
         else:
             self._send(b"not found", 404)
 

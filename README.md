@@ -27,6 +27,29 @@ python scanmesh.py 127.0.0.1     # live nmap scan -> report.html
 `--demo` runs a full offline self-check of every parser and rule, so a fresh
 clone verifies with zero external tools installed.
 
+## Full demo (web UI, all four tools)
+
+On a machine with nmap, sqlmap, OWASP ZAP and Wireshark installed (see
+[SETUP.md](SETUP.md)):
+
+```bat
+demo.cmd
+```
+
+This starts ZAP, a local **deliberately vulnerable** target
+(`demo_target.py`, localhost only), and the web dashboard, then opens
+`http://127.0.0.1:8000`. In the UI choose **Web scan** and enter
+`http://127.0.0.1:8099/products?cat=1`. One scan exercises the whole pipeline:
+
+- **nmap** discovers open ports
+- **ZAP** crawls + active-scans the web app
+- **sqlmap** confirms the SQL injection ZAP flags -> merged into one
+  `critical` finding contributed by both tools
+- **tshark** captures loopback traffic as evidence
+
+Manual equivalent (four terminals): `zap-daemon`, `python demo_target.py`,
+`python web.py`, then browse to the UI.
+
 ## Tools
 
 | Stage | Tool | Cost | Install |
