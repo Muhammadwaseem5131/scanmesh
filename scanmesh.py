@@ -277,7 +277,10 @@ def zap_scan(url: str, api_key: str, base: str = "http://localhost:8080",
 
     wait("spider", call("/JSON/spider/action/scan/", url=url)["scan"])
     wait("ascan", call("/JSON/ascan/action/scan/", url=url)["scan"])
-    return parse_zap_alerts(call("/JSON/core/view/alerts/", baseurl=url))
+    # ZAP `baseurl` is a prefix match; injected payloads change the query, so
+    # filter on the path without the query or we drop the injection alerts.
+    base_target = url.split("?", 1)[0]
+    return parse_zap_alerts(call("/JSON/core/view/alerts/", baseurl=base_target))
 
 
 # --- 6.1 Rule engine: what to run next given nmap results ----------------------
