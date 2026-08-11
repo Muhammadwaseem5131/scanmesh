@@ -10,7 +10,7 @@ already set for user **GEF** — open a **new** terminal for them to take effect
 | nmap | (system) | `nmap` | ✅ working |
 | sqlmap | `D:\SecTools\sqlmap` | `sqlmap` (shim → `python sqlmap.py`) | ✅ working |
 | OWASP ZAP 2.17 | `D:\SecTools\ZAP_2.17.0` | `zap-daemon` (starts daemon) | ✅ working |
-| Wireshark/tshark | — | `tshark` | ⛔ **needs manual install (admin)** |
+| Wireshark/tshark | `C:\Program Files\Wireshark` | `tshark` | ✅ working (4.6.7 + Npcap) |
 
 Environment already configured:
 - PATH += `D:\SecTools\bin`, `C:\Program Files\Wireshark`
@@ -30,18 +30,12 @@ sqlmap -u "http://target/x?id=1" --batch   :: sqlmap directly, if needed
 ZAP API: `http://127.0.0.1:8090`, key `scanmesh123` (change in
 `D:\SecTools\bin\zap-daemon.cmd`).
 
-## Wireshark — the one manual step (requires admin)
+## Wireshark — installed
 
-tshark needs the **Npcap** kernel driver, which requires an administrator
-UAC prompt — it can't be installed unattended. Run the staged installer and
-approve the prompts (accept the bundled Npcap):
-
-```bat
-D:\SecTools\Wireshark-installer.exe
-```
-
-After install, `tshark` is on PATH (already added above). Live capture also
-needs a privileged/Administrator terminal.
+Wireshark 4.6.7 + Npcap are installed and verified: a real loopback capture
+through the tshark connector captured 104 packets and parsed the HTTP request
+as evidence. `tshark` is on PATH. (Some interfaces may need an Administrator
+terminal to capture; loopback worked without one here.)
 
 ## Verified end-to-end (2026-08-11)
 

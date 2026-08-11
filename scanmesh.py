@@ -29,6 +29,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.parse
 import uuid
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -312,13 +313,39 @@ def next_steps(findings: list[Finding]) -> list[str]:
 
 
 # --- 6.2 / 7 De-dup + correlation --------------------------------------------
+# Canonical vuln families so different tools' labels for the same bug merge.
+_CANON_TYPES = (
+    ("sql injection", "SQL Injection"),
+    ("cross-site scripting", "Cross-Site Scripting"),
+    ("cross site scripting", "Cross-Site Scripting"),
+    ("xss", "Cross-Site Scripting"),
+)
+
+
+def _canon_type(t: str) -> str:
+    tl = t.lower()
+    for needle, name in _CANON_TYPES:
+        if needle in tl:
+            return name
+    return t
+
+
+def _endpoint(target: str) -> str:
+    """host+path without the query, so ?cat=1 and ?cat=%3B collapse to one."""
+    p = urllib.parse.urlsplit(target)
+    return f"{p.scheme}://{p.netloc}{p.path}" if p.scheme else target
+
+
 def correlate(findings: list[Finding]) -> list[Finding]:
-    """Merge findings that share (target, finding_type) into one record,
-    keeping the highest severity and unioning contributing tools."""
+    """Merge findings for the same vuln family on the same endpoint into one
+    record, keeping the highest severity and unioning contributing tools.
+    Different tools name the same bug differently (e.g. 'SQL Injection' vs
+    'SQL Injection - SQLite') and hit different query values - both normalized."""
     merged: dict[tuple[str, str], Finding] = {}
     for f in findings:
-        key = (f.target, f.finding_type)
+        key = (_endpoint(f.target), _canon_type(f.finding_type))
         if key not in merged:
+            f.finding_type = _canon_type(f.finding_type)  # clean display label
             merged[key] = f
             continue
         m = merged[key]
@@ -398,6 +425,15 @@ def demo() -> None:
 
     steps = next_steps(f)
     assert any("10.0.0.5" in s for s in steps), "web-port trigger rule missed :80"
+
+    # cross-tool merge: same vuln family, different labels AND query values
+    mix = [Finding("sqlmap", "http://h/x?id=1", "SQL Injection", "critical", "p1"),
+           Finding("zap", "http://h/x?id=%3B", "SQL Injection - SQLite", "high", "p2")]
+    mm = correlate(mix)
+    assert len(mm) == 1, f"SQLi variants should merge, got {len(mm)}"
+    assert mm[0].tools == {"sqlmap", "zap"}, "merge should union tools"
+    assert mm[0].severity == "critical", "merge should keep max severity"
+    assert mm[0].finding_type == "SQL Injection", "merge should canonicalize label"
 
     # sqlmap parser
     sm_log = ("sqlmap identified the following injection point(s):\n"
