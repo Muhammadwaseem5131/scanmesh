@@ -110,8 +110,15 @@ def parse_nmap_xml(xml_text: str) -> list[Finding]:
 def run_sqlmap(url: str, out_dir: str, extra_args: list[str] | None = None) -> str:
     """Run sqlmap non-interactively against one URL. Returns its log text.
     Only ever call this on injection points already flagged by another tool
-    (Section 5.4) - not a blind sweep."""
-    args = ["sqlmap", "-u", url, "--batch", f"--output-dir={out_dir}",
+    (Section 5.4) - not a blind sweep.
+
+    The sqlmap command defaults to `sqlmap` (a real binary on PATH, e.g. Linux);
+    override via SCANMESH_SQLMAP for other layouts, e.g. on Windows where it's a
+    script: set SCANMESH_SQLMAP=python D:\\SecTools\\sqlmap\\sqlmap.py"""
+    import shlex
+    cmd = os.environ.get("SCANMESH_SQLMAP", "sqlmap")
+    base = shlex.split(cmd, posix=(os.name != "nt"))
+    args = [*base, "-u", url, "--batch", f"--output-dir={out_dir}",
             *(extra_args or [])]
     subprocess.run(args, capture_output=True, text=True)
     logs = glob.glob(os.path.join(out_dir, "**", "log"), recursive=True)
