@@ -1,0 +1,11 @@
+# scan artifacts - never commit findings/evidence
+report.html
+*.pcap
+sqlmap_out/
+output/
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/

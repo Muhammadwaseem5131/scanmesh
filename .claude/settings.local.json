@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m py_compile scanmesh.py)",
+      "Bash(python -c \"import scanmesh; print\\('import OK \\(no external tools needed\\)'\\)\")",
+      "Bash(python scanmesh.py --demo)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git -c 'user.name=Muhammad Waseem' -c user.email=ww5131460@gmail.com commit -q -m 'ScanMesh: rule-based security-tool orchestrator \\(nmap/ZAP/sqlmap/tshark\\) *)"
+    ]
+  }
+}

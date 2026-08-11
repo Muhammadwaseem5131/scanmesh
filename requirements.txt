@@ -1,0 +1,4 @@
+# Runtime dep for the REST connectors (ZAP/Acunetix/Burp) only.
+# Imported lazily inside those functions, so scanmesh.py imports and
+# `python scanmesh.py --demo` run fine without it.
+requests>=2.31
