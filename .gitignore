@@ -1,5 +1,7 @@
 # scan artifacts - never commit findings/evidence
 report.html
+report_full.html
+scanmesh.db
 *.pcap
 sqlmap_out/
 output/
