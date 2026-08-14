@@ -16,6 +16,7 @@ from __future__ import annotations
 import html
 import os
 import sqlite3
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -63,43 +64,109 @@ def _benign_url(url: str) -> str:
                                     urllib.parse.urlencode(q), ""))
 
 
+LOOPBACK = r"\Device\NPF_Loopback"
+
+
+def _capture_iface(target: str) -> str | None:
+    """Pick the tshark interface for a target: explicit env override, else
+    loopback for local targets, else auto-detect the default-route adapter."""
+    if CAPTURE_IFACE:
+        return CAPTURE_IFACE
+    if _host(target) in ("127.0.0.1", "localhost", "::1"):
+        return LOOPBACK
+    try:  # Windows/Npcap: GUID of the adapter carrying the default route
+        ps = ("$i=(Get-NetRoute -DestinationPrefix 0.0.0.0/0 | "
+              "Sort-Object RouteMetric | Select-Object -First 1).ifIndex;"
+              "(Get-NetAdapter -InterfaceIndex $i).InterfaceGuid")
+        out = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                             capture_output=True, text=True, timeout=15).stdout.strip()
+        return rf"\Device\NPF_{out}" if out.startswith("{") else None
+    except Exception:
+        return None
+
+
 # --- the scan pipeline, run off-thread so the HTTP request returns at once ---
 def run_scan(scan_id: int, target: str, kind: str) -> None:
     findings: list[sm.Finding] = []
     notes = []
-    cap, pcap = None, None
-    if CAPTURE_IFACE:  # optional evidence capture spanning the scan window
+    host = _host(target)
+    outdir = os.path.join(os.path.dirname(DB), "sqlmap_out")
+    # tshark capture spans the whole scan window; every scan attempts it
+    iface = _capture_iface(target)
+    cap = pcap = None
+    if iface:
         pcap = os.path.join(os.path.dirname(DB), f"cap_{scan_id}.pcap")
         try:
-            cap = sm.capture_start(CAPTURE_IFACE, pcap)
+            cap = sm.capture_start(iface, pcap)
         except Exception as e:
             notes.append(f"capture start: {e}")
     try:
-        findings += sm.parse_nmap_xml(sm.run_nmap(_host(target)))
+        findings += sm.parse_nmap_xml(sm.run_nmap(host))
+
         if kind == "web":
             try:
                 zf = sm.zap_scan(_url(target), ZAP_KEY, base=ZAP_BASE)
                 findings += zf
-                # targeted sqlmap on anything ZAP flagged as injection
-                for f in zf:
-                    if "sql" in f.finding_type.lower():
-                        clean = _benign_url(f.target)
-                        log = sm.run_sqlmap(clean, os.path.join(
-                            os.path.dirname(DB), "sqlmap_out"))
-                        findings += sm.parse_sqlmap_log(log, clean)
-            except Exception as e:  # ZAP daemon down / sqlmap missing
-                notes.append(f"web stage: {e}")
-        if cap:  # stop capture, attach packet evidence for the target host
+            except Exception as e:  # ZAP daemon down
+                zf = []
+                notes.append(f"zap: {e}")
+
+            # sqlmap ALWAYS runs: the target's own params + anything ZAP flagged
+            endpoints = []
+            tgt = _benign_url(_url(target))
+            if urllib.parse.urlsplit(tgt).query:
+                endpoints.append(tgt)
+            for f in zf:
+                if "sql" in f.finding_type.lower():
+                    b = _benign_url(f.target)
+                    if b not in endpoints:
+                        endpoints.append(b)
+            hits = 0
+            for u in endpoints:
+                try:
+                    sf = sm.parse_sqlmap_log(sm.run_sqlmap(u, outdir), u)
+                    findings += sf
+                    hits += len(sf)
+                except Exception as e:
+                    notes.append(f"sqlmap: {e}")
+            # leave a sqlmap row even when nothing is vulnerable (not canonicalized)
+            if hits == 0:
+                if endpoints:
+                    findings.append(sm.Finding("sqlmap", host,
+                        "SQLi Test - not vulnerable", "info",
+                        f"sqlmap tested {len(endpoints)} parameterized URL(s); no injection found"))
+                else:
+                    findings.append(sm.Finding("sqlmap", host,
+                        "SQLi Test - skipped", "info",
+                        "no URL parameters to test on this target"))
+
+        # stop capture and ALWAYS record a tshark row
+        npkts = 0
+        if cap:
             cap.terminate()
             time.sleep(1)
-            try:
-                ev = sm.parse_tshark_evidence(sm.tshark_fields(pcap), _host(target))
-                if ev:
-                    findings.append(sm.Finding("tshark", _host(target),
-                        "Traffic Evidence", "info", ev[:1000]))
-            except Exception as e:
-                notes.append(f"tshark: {e}")
             cap = None
+            try:
+                fields = sm.tshark_fields(pcap)
+                npkts = len(fields.splitlines())
+                ev = sm.parse_tshark_evidence(fields, host)
+            except Exception as e:
+                ev = ""
+                notes.append(f"tshark: {e}")
+            if ev:
+                findings.append(sm.Finding("tshark", host,
+                    "Traffic Evidence", "info", ev[:1000]))
+            else:
+                findings.append(sm.Finding("tshark", host,
+                    "Traffic Capture - no matching packets", "info",
+                    f"captured {npkts} pkt(s) on {iface}; none matched {host}. "
+                    "Set SCANMESH_CAPTURE_IFACE to the adapter carrying this traffic."))
+        else:
+            findings.append(sm.Finding("tshark", host,
+                "Traffic Capture - unavailable", "info",
+                "capture did not start (interface/permission); "
+                "run as Administrator or set SCANMESH_CAPTURE_IFACE."))
+
         findings = sm.correlate(findings)
         status = "done" + (f" ({'; '.join(notes)})" if notes else "")
     except Exception as e:
@@ -236,6 +303,11 @@ def _check() -> None:
     # payload URL -> benign baseline, params kept, values reset
     assert _benign_url("http://h/p?cat=%3B&id=DROP") == "http://h/p?cat=1&id=1"
     assert _benign_url("http://h/p") == "http://h/p"
+    # the "not vulnerable" sqlmap note must NOT be canonicalized into a real
+    # SQL Injection finding (that would read as a vuln that isn't there)
+    nv = sm.correlate([sm.Finding("sqlmap", "h", "SQLi Test - not vulnerable",
+                                  "info", "x")])
+    assert nv[0].finding_type == "SQLi Test - not vulnerable", nv[0].finding_type
     print("web self-check OK")
 
 
