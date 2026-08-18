@@ -14,6 +14,7 @@ DB: scanmesh.db (SQLite)
 from __future__ import annotations
 
 import html
+import json
 import os
 import sqlite3
 import subprocess
@@ -441,52 +442,71 @@ def _tool_tags(tools) -> str:
         f'<span class="tag {html.escape(t)}">{html.escape(t)}</span>' for t in sorted(tools)) + '</div>'
 
 
-def index_page() -> bytes:
+# poll only the table + ledger while a scan runs - no full-page reload, so the
+# target box, focus and scroll position are never disturbed.
+POLL_SCRIPT = ("<script>(function(){function p(){fetch('/rows').then(r=>r.json()).then(d=>{"
+               "var b=document.getElementById('scan-rows');if(b)b.innerHTML=d.rows;"
+               "var l=document.getElementById('ledger');if(l)l.innerHTML=d.ledger;"
+               "if(d.running)setTimeout(p,2500);}).catch(function(){setTimeout(p,5000);});}"
+               "setTimeout(p,2500);})();</script>")
+
+_KIND_LABEL = {"web": "full", "quick": "quick", "nmap": "ports"}
+
+
+def _counts() -> dict:
     c = db()
-    rows = c.execute("""SELECT id,target,kind,status,created FROM scans
-        ORDER BY id DESC LIMIT 100""").fetchall()
     counts = {s: 0 for s in SEV_UI}
     for (sev,) in c.execute("SELECT severity FROM findings"):
         if sev in counts:
             counts[sev] += 1
     c.close()
+    return counts
 
-    def status_cell(st):
-        if st == "running":
-            return '<span class="status running"><span class=d></span>running</span>'
-        if st.startswith("error"):
-            return (f'<span class="status error" title="{html.escape(st)}">'
-                    f'<span class=d></span>error</span>')
-        warn = (f' <span class=warn title="{html.escape(st)}">&#9888;</span>'
-                if st != "done" else "")
-        return f'<span class="status done"><span class=d></span>done</span>{warn}'
 
-    kind_label = {"web": "full", "quick": "quick", "nmap": "ports"}
-    rows_html = []
+def _status_cell(st: str) -> str:
+    if st == "running":
+        return '<span class="status running"><span class=d></span>running</span>'
+    if st.startswith("error"):
+        return (f'<span class="status error" title="{html.escape(st)}">'
+                f'<span class=d></span>error</span>')
+    warn = (f' <span class=warn title="{html.escape(st)}">&#9888;</span>'
+            if st != "done" else "")
+    return f'<span class="status done"><span class=d></span>done</span>{warn}'
+
+
+def _scan_rows():
+    """(tbody html, any_running, has_rows) for the history table."""
+    c = db()
+    rows = c.execute("""SELECT id,target,kind,status,created FROM scans
+        ORDER BY id DESC LIMIT 100""").fetchall()
+    c.close()
+    out = []
     for i, t, k, st, cr in rows:
         report = (f"<a class=rep-link href='/scan?id={i}'>Report &rarr;</a>"
                   if st != "running" else
                   "<span class='rep-link disabled' title='Report ready when the scan finishes'>Report &rarr;</span>")
-        rows_html.append(
+        out.append(
             f"<tr><td class=t-id>#{i}</td><td class=mono>{html.escape(t)}</td>"
-            f"<td><span class=tag>{kind_label.get(k, html.escape(k))}</span></td>"
-            f"<td>{status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
+            f"<td><span class=tag>{_KIND_LABEL.get(k, html.escape(k))}</span></td>"
+            f"<td>{_status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
             f"<td class=actions><div class=act-row>{report}"
             f"<form method=post action=/delete onsubmit=\"return confirm('Delete scan #{i}?')\">"
             f"<input type=hidden name=id value={i}>"
             f"<button class=del type=submit title='Delete scan'>&#10005;</button></form>"
             f"</div></td></tr>")
-    tbody = "".join(rows_html) or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
-    # refresh statuses while a scan runs, but NOT while you're using the target
-    # box - so an in-progress scan never interrupts you starting another one
-    refresh = ("<script>setTimeout(function(){var t=document.getElementById('target');"
-               "if(!(t&&(t.value||document.activeElement===t)))location.reload();},4000);</script>"
-               ) if any(r[3] == "running" for r in rows) else ""
+    tbody = "".join(out) or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
+    return tbody, any(r[3] == "running" for r in rows), bool(rows)
+
+
+def index_page() -> bytes:
+    counts = _counts()
+    tbody, running, has_rows = _scan_rows()
+    refresh = POLL_SCRIPT if running else ""
     clear_all = ("<form method=post action=/delete "
                  "onsubmit=\"return confirm('Delete ALL scan history?')\">"
                  "<input type=hidden name=all value=1>"
                  "<button class=del-all type=submit>Clear history</button></form>"
-                 ) if rows else ""
+                 ) if has_rows else ""
 
     body = f"""<h1 class=page>Scan console</h1>
 <p class=sub>Orchestrate nmap &middot; ZAP &middot; sqlmap &middot; tshark against one target &mdash; one correlated report.</p>
@@ -509,11 +529,11 @@ def index_page() -> bytes:
   <div class=hint>Full = crawl whole site (slow). Quick = single URL (fast). Web scans need the ZAP daemon running. Authorized targets only.</div>
 </form>
 </div>
-{_summary(counts)}
+<div id=ledger>{_summary(counts)}</div>
 <div class=hist-head><div class=section-h>Scan history</div>{clear_all}</div>
 <div class=card style="padding:6px 0">
 <table class=tbl><thead><tr><th>ID</th><th>Target</th><th>Type</th><th>Status</th><th>Started</th><th></th></tr></thead>
-<tbody>{tbody}</tbody></table>
+<tbody id=scan-rows>{tbody}</tbody></table>
 </div>"""
     return _page("ScanMesh", body, refresh)
 
@@ -571,6 +591,11 @@ class Handler(BaseHTTPRequestHandler):
         u = urllib.parse.urlparse(self.path)
         if u.path == "/":
             self._send(index_page())
+        elif u.path == "/rows":
+            tbody, running, _ = _scan_rows()
+            payload = json.dumps({"rows": tbody, "ledger": _summary(_counts()),
+                                  "running": running})
+            self._send(payload.encode(), ctype="application/json")
         elif u.path == "/scan":
             raw = urllib.parse.parse_qs(u.query).get("id", ["0"])[0]
             if not raw.isdigit():
