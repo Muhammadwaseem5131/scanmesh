@@ -1,127 +1,171 @@
-# ScanMesh
+<div align="center">
+
+# 🛰️ ScanMesh
+
+**A rule-based security-tool orchestrator — five scanners, one correlated report.**
 
 ![CI](https://github.com/Muhammadwaseem5131/scanmesh/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
+![No LLM](https://img.shields.io/badge/AI%2FLLM-none-purple)
 
-A rule-based security-tool orchestrator. It chains free, industry-standard
-scanners — **nmap → OWASP ZAP → sqlmap → tshark** — into one pipeline that
-discovers hosts, scans web apps, confirms injection, captures evidence, then
-correlates every tool's output into a single de-duplicated report.
+![pipeline](docs/img/pipeline.svg)
 
-**100% deterministic. No AI/LLM anywhere in the pipeline.** Every decision is a
-plain `if`/lookup rule.
+</div>
+
+---
+
+## The problem
+
+A penetration tester runs each tool by hand — `nmap`, then a web scanner, then
+`sqlmap`, then a packet capture — copies output between them, and manually
+writes up five separate tool dumps into one report. It's slow, repetitive, and
+easy to miss that **two tools found the same thing.**
+
+## The solution
+
+ScanMesh **chains the tools into one automated pipeline** and **correlates**
+their output. You give it one target; it runs the right tools in the right
+order and produces a **single, de-duplicated, confidence-scored report.**
+
+The headline: when two tools independently find the same vulnerability
+(ZAP *suspects* a SQL injection, sqlmap *confirms* it), ScanMesh **merges them
+into one `critical` finding** — many tools agreeing = one high-confidence
+result, not two vague duplicates.
+
+> **100% deterministic. No AI/LLM anywhere.** Every decision — which tool runs
+> next, what merges with what — is a plain `if`/lookup rule you can read and audit.
+
+---
+
+## What a scan does
 
 ```mermaid
-flowchart LR
-    T[Target] --> NMAP[nmap]
-    NMAP -->|web port| ZAP[OWASP ZAP]
-    ZAP -->|injection| SQL[sqlmap]
-    NMAP -.evidence.-> TS[tshark]
-    NMAP --> C[Correlate<br/>dedup + severity + confidence]
-    ZAP --> C
-    SQL --> C
-    TS --> C
-    C --> R[One report]
+sequenceDiagram
+    participant U as You
+    participant M as ScanMesh
+    participant N as nmap
+    participant Z as OWASP ZAP
+    participant S as sqlmap
+    participant T as tshark
+    U->>M: submit target
+    M->>N: discover ports
+    N-->>M: 80/443 open
+    M->>Z: crawl + active-scan web app
+    Z-->>M: SQL injection suspected
+    M->>S: confirm on that parameter
+    S-->>M: injection CONFIRMED
+    M->>T: capture traffic as evidence
+    M->>M: normalize + correlate + score
+    M-->>U: one report — SQLi = CRITICAL (zap + sqlmap)
 ```
 
-> **Screenshots:** run the UI (below) and drop `dashboard.png` / `report.png`
-> into `docs/img/` — they'll render here. Architecture detail:
-> [docs/architecture.md](docs/architecture.md).
+## Example output
 
-## Authorized use only
+A single scan of the built-in vulnerable target produces:
 
-This tool is for authorized security testing only — infrastructure you own,
-owned lab environments, or engagements with explicit written permission. It
-does not scan or exploit on its own; it orchestrates and correlates output from
-user-operated tools that you have already configured and are authorized to run.
-It **suggests** next steps (e.g. "run sqlmap here") — the operator pulls the
-trigger.
+| Severity | Finding | Tools |
+|---|---|---|
+| 🔴 **critical** | SQL Injection | `sqlmap` + `zap` |
+| 🟠 medium | Content Security Policy (CSP) Header Not Set | `zap` |
+| 🟠 medium | Missing Anti-clickjacking Header | `zap` |
+| 🔵 low | Server Leaks Version Information | `zap` |
+| 🔵 low | X-Content-Type-Options Header Missing | `zap` |
+| ⚪ info | Open Port: msrpc / microsoft-ds / http-alt | `nmap` |
+| ⚪ info | Traffic Evidence | `tshark` |
+
+The `critical` row is the whole point: **ZAP found it, sqlmap confirmed it, so
+it correlates into one high-confidence finding contributed by both tools.**
+
+## Features
+
+- **Five connectors** — nmap · OWASP ZAP · sqlmap · tshark (+ optional Acunetix/Burp)
+- **Correlation engine** — de-dup by endpoint + vuln family, keep max severity, union tools
+- **Rule engine** — deterministic "run this next" (web port → ZAP; SQLi → sqlmap)
+- **Risk posture** — every report states a verdict: *Critical exposure → Informational*
+- **Web dashboard** — submit a scan, live status, grouped report (stdlib only, no framework)
+- **Persistence** — SQLite scan history
+- **Free-tool core** — nothing paid required; ZAP replaces commercial web scanners
+- **Tested** — unit tests + CI on every push; parsers verified offline
+
+---
 
 ## Quick start
 
-```bash
-python scanmesh.py --demo        # offline self-check, needs no external tools
-python scanmesh.py 127.0.0.1     # live nmap scan -> report.html
-```
-
-`--demo` runs a full offline self-check of every parser and rule, so a fresh
-clone verifies with zero external tools installed.
-
-## Full demo (web UI, all four tools)
-
-On a machine with nmap, sqlmap, OWASP ZAP and Wireshark installed (see
-[SETUP.md](SETUP.md)):
+Install Python 3.11+ and the tools (see [SETUP.md](SETUP.md)), then:
 
 ```bat
 demo.cmd
 ```
 
-This starts ZAP, a local **deliberately vulnerable** target
-(`demo_target.py`, localhost only), and the web dashboard, then opens
-`http://127.0.0.1:8000`. In the UI choose **Web scan** and enter
-`http://127.0.0.1:8099/products?cat=1`. One scan exercises the whole pipeline:
+This launches ZAP, a **local deliberately-vulnerable target**, and the web
+dashboard, then opens `http://127.0.0.1:8000`. Choose **Web scan**, enter
+`http://127.0.0.1:8099/products?cat=1`, and watch all four tools run.
 
-- **nmap** discovers open ports
-- **ZAP** crawls + active-scans the web app
-- **sqlmap** confirms the SQL injection ZAP flags -> merged into one
-  `critical` finding contributed by both tools
-- **tshark** captures loopback traffic as evidence
-
-Manual equivalent (four terminals): `zap-daemon`, `python demo_target.py`,
-`python web.py`, then browse to the UI.
-
-## Tools
-
-| Stage | Tool | Cost | Install |
-|---|---|---|---|
-| Host/port discovery | nmap | free | https://nmap.org |
-| Web app scanner | OWASP ZAP | free | `zap.sh -daemon -config api.key=<key>` |
-| SQLi confirmation | sqlmap | free | `pip install sqlmap` |
-| Evidence capture | tshark | free | install Wireshark, add to PATH |
-| Acunetix / Burp | *optional* | paid | connectors included but marked `UNTESTED` |
-
-ZAP is the free drop-in for the web-scanner role — it replaces the paid
-Acunetix/Burp scanners (Burp's scanner + REST API are Pro/Enterprise only on
-every OS; Acunetix has no free tier). The Acunetix/Burp connectors are left in
-place, clearly marked, for licensed engagements.
-
-Only `requests` is needed, and only for the REST connectors (ZAP/Acunetix/Burp)
-at run time — it is imported lazily, so the module and `--demo` work without it.
+Or from the terminal:
 
 ```bash
-pip install -r requirements.txt
+python scanmesh.py 127.0.0.1     # nmap scan -> report.html
+python scanmesh.py --demo        # offline self-check, no tools needed
 ```
 
-## Lab targets
+## Screenshots
 
-Never point this at anything you don't own or have written authorization for.
-Safe practice targets: DVWA, OWASP Juice Shop, Metasploitable2 — run them inside
-an isolated VM/VLAN with no internet exposure.
+> _Add `docs/img/dashboard.png` and `docs/img/report.png` (see “Record your demo” below) and they render here._
+
+| Dashboard | Report |
+|---|---|
+| ![dashboard](docs/img/dashboard.png) | ![report](docs/img/report.png) |
+
+## Record your demo
+
+Live app at `http://127.0.0.1:8000` after `demo.cmd`:
+
+- **Screenshots** — `Win + Shift + S` (Windows Snipping Tool), save the dashboard
+  as `docs/img/dashboard.png` and a report as `docs/img/report.png`, then commit.
+- **Video / GIF** — record with `Win + Alt + R` (Xbox Game Bar) or
+  [ShareX](https://getsharex.com) → export a short GIF to `docs/img/demo.gif`,
+  or upload to YouTube/Loom and link it here. Suggested 30-second script:
+  *open dashboard → paste the demo target → Web scan → watch status go
+  running → done → open report → point at the `critical` SQLi merged from two tools.*
+
+---
 
 ## How it works
 
 Every connector normalizes to one `Finding` schema. `correlate()` merges
-findings on the same **endpoint** (host + path) belonging to the same **vuln
-family** — so ZAP's `SQL Injection - SQLite` and sqlmap's `SQL Injection` on the
-same URL collapse into one `critical` finding contributed by both tools (more
-tools agreeing = higher confidence). The rule engine advises the next tool to
-run based on prior results (web port open → ZAP; ZAP finds SQLi → sqlmap). One
-report comes out — in the web dashboard or as HTML.
+findings on the same **endpoint** (host + path) in the same **vuln family** —
+so ZAP's `SQL Injection - SQLite` and sqlmap's `SQL Injection` on the same URL
+collapse into one `critical` finding contributed by both tools. The rule engine
+picks the next tool from prior results. One report comes out — dashboard or HTML.
 
-See [docs/architecture.md](docs/architecture.md) for the full design.
+Full design, diagrams and trade-offs: **[docs/architecture.md](docs/architecture.md)**.
 
 ## Testing
 
 ```bash
 pytest                    # unit tests: parsers, correlation, web helpers
 python scanmesh.py --demo # offline self-check of every parser + rule
-python web.py --check     # web helper self-check
+python web.py --check     # web-helper self-check
 ```
 
-All three run with no external tools installed and are gated in CI on every
-push. The live connectors are verified end-to-end against the local demo target.
+All run with **no external tools installed** and are gated in CI on every push.
+
+## Scope & authorized use
+
+For authorized testing only — infrastructure you **own**, owned lab
+environments, or engagements with **explicit written permission**. ScanMesh
+orchestrates user-operated tools and *suggests* next steps; the operator pulls
+the trigger. Safe practice targets: the bundled demo target, DVWA, OWASP Juice
+Shop, Metasploitable2 — inside an isolated VM/VLAN.
+
+## Roadmap / known limits
+
+- One ZAP daemon → concurrent scans serialize *(add per-scan sessions if needed)*
+- SQLite → single host *(Postgres when multi-user)*
+- Acunetix/Burp connectors written but **untested** — commercial licenses; parsers pass on sample data, treated as planned enterprise integrations
+- No Docker — tshark's Npcap driver doesn't containerize on Windows (deliberate non-goal)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Built by **Muhammad Waseem**.
