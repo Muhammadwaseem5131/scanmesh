@@ -211,7 +211,7 @@ SITE_CSS = """
   --faint:#94a0b3; --accent:#0f766e; --accent-dim:#a7d8d0; --accent2:#2563eb;
   --crit:#d11e3a; --high:#c2540c; --med:#8f6a08; --low:#2563eb; --info:#5b6675;
   --crit-bg:#fdeaec; --high-bg:#fcecdd; --med-bg:#f7f0cf; --low-bg:#e7edfd; --info-bg:#eef1f6;
-  --shadow:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.04);
+  --shadow:0 10px 28px rgba(16,24,40,.12),0 4px 10px rgba(16,24,40,.08),0 1px 2px rgba(16,24,40,.06);
   --radius:14px;
   --mono:"JetBrains Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
   --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
