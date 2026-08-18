@@ -36,6 +36,14 @@ result, not two vague duplicates.
 > **100% deterministic. No AI/LLM anywhere.** Every decision — which tool runs
 > next, what merges with what — is a plain `if`/lookup rule you can read and audit.
 
+## Demo
+
+![ScanMesh demo](docs/img/demo.gif)
+
+> Submit a target → nmap, ZAP, sqlmap and tshark run → one correlated report.
+> The SQL injection is found by ZAP, confirmed by sqlmap, and merged into a
+> single **critical** finding contributed by both tools.
+
 ---
 
 ## What a scan does
@@ -111,23 +119,9 @@ python scanmesh.py --demo        # offline self-check, no tools needed
 
 ## Screenshots
 
-> _Add `docs/img/dashboard.png` and `docs/img/report.png` (see “Record your demo” below) and they render here._
-
-| Dashboard | Report |
+| Scan console | Correlated report |
 |---|---|
 | ![dashboard](docs/img/dashboard.png) | ![report](docs/img/report.png) |
-
-## Record your demo
-
-Live app at `http://127.0.0.1:8000` after `demo.cmd`:
-
-- **Screenshots** — `Win + Shift + S` (Windows Snipping Tool), save the dashboard
-  as `docs/img/dashboard.png` and a report as `docs/img/report.png`, then commit.
-- **Video / GIF** — record with `Win + Alt + R` (Xbox Game Bar) or
-  [ShareX](https://getsharex.com) → export a short GIF to `docs/img/demo.gif`,
-  or upload to YouTube/Loom and link it here. Suggested 30-second script:
-  *open dashboard → paste the demo target → Web scan → watch status go
-  running → done → open report → point at the `critical` SQLi merged from two tools.*
 
 ---
 
