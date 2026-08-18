@@ -265,9 +265,11 @@ def parse_zap_alerts(payload: dict) -> list[Finding]:
 
 
 def zap_scan(url: str, api_key: str, base: str = "http://localhost:8080",
-             timeout: int = 3600) -> list[Finding]:  # pragma: no cover
+             timeout: int = 3600, quick: bool = False) -> list[Finding]:  # pragma: no cover
     """Spider -> active scan -> pull alerts, via ZAP's REST API. Tested against
-    ZAP daemon (`zap.sh -daemon -config api.key=<key>`); no license needed."""
+    ZAP daemon (`zap.sh -daemon -config api.key=<key>`); no license needed.
+    quick=True skips the whole-site spider and active-scans only this URL -
+    much faster on large sites, at the cost of site-wide coverage."""
     import time
     import requests
     s = requests.Session()
@@ -283,8 +285,12 @@ def zap_scan(url: str, api_key: str, base: str = "http://localhost:8080",
                 return
             time.sleep(5)
 
-    wait("spider", call("/JSON/spider/action/scan/", url=url)["scan"])
-    wait("ascan", call("/JSON/ascan/action/scan/", url=url)["scan"])
+    if quick:
+        call("/JSON/core/action/accessUrl/", url=url)  # seed just this URL
+        wait("ascan", call("/JSON/ascan/action/scan/", url=url, recurse="false")["scan"])
+    else:
+        wait("spider", call("/JSON/spider/action/scan/", url=url)["scan"])
+        wait("ascan", call("/JSON/ascan/action/scan/", url=url)["scan"])
     # ZAP `baseurl` is a prefix match; injected payloads change the query, so
     # filter on the path without the query or we drop the injection alerts.
     base_target = url.split("?", 1)[0]

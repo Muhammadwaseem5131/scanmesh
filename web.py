@@ -103,9 +103,10 @@ def run_scan(scan_id: int, target: str, kind: str) -> None:
     try:
         findings += sm.parse_nmap_xml(sm.run_nmap(host))
 
-        if kind == "web":
+        if kind in ("web", "quick"):
             try:
-                zf = sm.zap_scan(_url(target), ZAP_KEY, base=ZAP_BASE)
+                zf = sm.zap_scan(_url(target), ZAP_KEY, base=ZAP_BASE,
+                                 quick=(kind == "quick"))
                 findings += zf
             except Exception as e:  # ZAP daemon down
                 zf = []
@@ -210,8 +211,10 @@ SITE_CSS = """
   --faint:#586472; --accent:#2ee6b6; --accent-dim:#134a3d; --accent2:#4aa8ff;
   --crit:#ff4d6d; --high:#ff8f4a; --med:#f5c944; --low:#4aa8ff; --info:#7d8a99;
   --crit-bg:#2a0e16; --high-bg:#2a170c; --med-bg:#292209; --low-bg:#0d1f30; --info-bg:#171d25;
-  --radius:14px; --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
-  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --radius:14px;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Code",Consolas,monospace;
+  --sans:"Inter",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --display:"Space Grotesk","Inter",system-ui,sans-serif;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);
@@ -228,7 +231,7 @@ header{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
 .hdr{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
 .mark{width:34px;height:34px;flex:none}
 .brand{display:flex;flex-direction:column;line-height:1.1}
-.brand b{font-size:18px;letter-spacing:.3px}
+.brand b{font-size:19px;letter-spacing:.2px;font-family:var(--display);font-weight:700}
 .brand span{font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
 .hdr .spacer{flex:1}
 .badge-auth{font:11px/1 var(--mono);color:var(--accent);border:1px solid var(--accent-dim);
@@ -237,7 +240,7 @@ header{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
 /* cards */
 .card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
   border-radius:var(--radius);padding:20px}
-h1.page{font-size:22px;margin:28px 0 4px;letter-spacing:.2px}
+h1.page{font-size:26px;margin:28px 0 4px;letter-spacing:.2px;font-family:var(--display);font-weight:600}
 .sub{color:var(--muted);font-size:13px;margin:0 0 20px}
 
 /* scan form */
@@ -302,9 +305,21 @@ input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(46,2
   padding:3px 8px;border-radius:6px;letter-spacing:.3px}
 .tag.nmap{color:#8fd3ff} .tag.zap{color:#ffb454} .tag.sqlmap{color:#ff7a8a} .tag.tshark{color:#8ff0c0}
 .rep-link{font:600 12px var(--sans);color:var(--accent);border:1px solid var(--accent-dim);
-  padding:6px 12px;border-radius:8px;transition:background .15s}
+  padding:6px 12px;border-radius:8px;transition:background .15s;white-space:nowrap}
 .rep-link:hover{background:rgba(46,230,182,.08);text-decoration:none}
 .empty{color:var(--faint);text-align:center;padding:34px}
+.warn{color:var(--med);cursor:help;font-size:13px}
+td.actions{white-space:nowrap}
+.act-row{display:flex;gap:8px;align-items:center;justify-content:flex-end}
+.act-row form{margin:0;display:inline-flex}
+.del{font:600 13px var(--sans);color:var(--faint);background:transparent;cursor:pointer;
+  border:1px solid var(--border2);border-radius:8px;padding:6px 10px;line-height:1;transition:.15s}
+.del:hover{color:var(--crit);border-color:#4a1622;background:var(--crit-bg)}
+.hist-head{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px;gap:12px}
+.hist-head .section-h{margin:0}
+.del-all{font:600 12px var(--sans);color:var(--muted);background:transparent;cursor:pointer;
+  border:1px solid var(--border2);border-radius:8px;padding:8px 14px;transition:.15s}
+.del-all:hover{color:var(--crit);border-color:#4a1622;background:var(--crit-bg)}
 
 /* findings (report) */
 .finding{display:flex;gap:0;background:var(--panel);border:1px solid var(--border);
@@ -334,9 +349,14 @@ MESH_MARK = ('<svg class="mark" viewBox="0 0 40 40" fill="none" xmlns="http://ww
 
 
 def _page(title: str, body: str, refresh: str = "") -> bytes:
+    fonts = ("<link rel=preconnect href='https://fonts.googleapis.com'>"
+             "<link rel=preconnect href='https://fonts.gstatic.com' crossorigin>"
+             "<link rel=stylesheet href='https://fonts.googleapis.com/css2?"
+             "family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&"
+             "family=JetBrains+Mono:wght@400;500;600&display=swap'>")
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<title>{html.escape(title)}</title>{refresh}<style>{SITE_CSS}</style></head><body>"
+            f"<title>{html.escape(title)}</title>{refresh}{fonts}<style>{SITE_CSS}</style></head><body>"
             f"<header><div class=hdr>{MESH_MARK}"
             f"<div class=brand><b>ScanMesh</b><span>Security orchestrator</span></div>"
             f"<div class=spacer></div><div class=badge-auth>authorized targets only</div>"
@@ -377,17 +397,34 @@ def index_page() -> bytes:
     c.close()
 
     def status_cell(st):
-        cls = "running" if st == "running" else ("error" if st.startswith("error") else "done")
-        return f'<span class="status {cls}"><span class=d></span>{html.escape(st)}</span>'
+        if st == "running":
+            return '<span class="status running"><span class=d></span>running</span>'
+        if st.startswith("error"):
+            return (f'<span class="status error" title="{html.escape(st)}">'
+                    f'<span class=d></span>error</span>')
+        warn = (f' <span class=warn title="{html.escape(st)}">&#9888;</span>'
+                if st != "done" else "")
+        return f'<span class="status done"><span class=d></span>done</span>{warn}'
 
+    kind_label = {"web": "full", "quick": "quick", "nmap": "ports"}
     trs = "".join(
         f"<tr><td class=t-id>#{i}</td><td class=mono>{html.escape(t)}</td>"
-        f"<td><span class=tag>{html.escape(k)}</span></td>"
+        f"<td><span class=tag>{kind_label.get(k, html.escape(k))}</span></td>"
         f"<td>{status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
-        f"<td><a class=rep-link href='/scan?id={i}'>Report &rarr;</a></td></tr>"
+        f"<td class=actions><div class=act-row>"
+        f"<a class=rep-link href='/scan?id={i}'>Report &rarr;</a>"
+        f"<form method=post action=/delete onsubmit=\"return confirm('Delete scan #{i}?')\">"
+        f"<input type=hidden name=id value={i}>"
+        f"<button class=del type=submit title='Delete scan'>&#10005;</button></form>"
+        f"</div></td></tr>"
         for i, t, k, st, cr in rows)
     tbody = trs or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
     refresh = "<meta http-equiv=refresh content=4>" if any(r[3] == "running" for r in rows) else ""
+    clear_all = ("<form method=post action=/delete "
+                 "onsubmit=\"return confirm('Delete ALL scan history?')\">"
+                 "<input type=hidden name=all value=1>"
+                 "<button class=del-all type=submit>Clear history</button></form>"
+                 ) if rows else ""
 
     body = f"""<h1 class=page>Scan console</h1>
 <p class=sub>Orchestrate nmap &middot; ZAP &middot; sqlmap &middot; tshark against one target &mdash; one correlated report.</p>
@@ -401,16 +438,17 @@ def index_page() -> bytes:
   <div class=field style="flex:none">
     <label class=lbl>Scan type</label>
     <div class=seg>
-      <input type=radio name=kind id=k-web value=web checked><label for=k-web>Web scan</label>
-      <input type=radio name=kind id=k-nmap value=nmap><label for=k-nmap>Port scan</label>
+      <input type=radio name=kind id=k-web value=web checked><label for=k-web>Full scan</label>
+      <input type=radio name=kind id=k-quick value=quick><label for=k-quick>Quick scan</label>
+      <input type=radio name=kind id=k-nmap value=nmap><label for=k-nmap>Ports</label>
     </div>
   </div>
   <button class=btn type=submit>Run scan</button>
-  <div class=hint>Web scan runs the full chain and needs the ZAP daemon running. Authorized targets only.</div>
+  <div class=hint>Full = crawl whole site (slow). Quick = single URL (fast). Web scans need the ZAP daemon running. Authorized targets only.</div>
 </form>
 </div>
 {_stat_tiles(counts)}
-<div class=section-h>Scan history</div>
+<div class=hist-head><div class=section-h>Scan history</div>{clear_all}</div>
 <div class=card style="padding:6px 0">
 <table class=tbl><thead><tr><th>ID</th><th>Target</th><th>Type</th><th>Status</th><th>Started</th><th></th></tr></thead>
 <tbody>{tbody}</tbody></table>
@@ -477,13 +515,35 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(b"not found", 404)
 
+    def _redirect_home(self):
+        self.send_response(303)
+        self.send_header("Location", "/")
+        self.end_headers()
+
     def do_POST(self):
-        if urllib.parse.urlparse(self.path).path != "/scan":
-            return self._send(b"not found", 404)
+        path = urllib.parse.urlparse(self.path).path
         n = int(self.headers.get("Content-Length", 0))
         form = urllib.parse.parse_qs(self.rfile.read(n).decode())
+
+        if path == "/delete":
+            c = db()
+            if form.get("all"):
+                c.execute("DELETE FROM findings")
+                c.execute("DELETE FROM scans")
+            elif form.get("id", [""])[0].isdigit():
+                sid = int(form["id"][0])
+                c.execute("DELETE FROM findings WHERE scan_id=?", (sid,))
+                c.execute("DELETE FROM scans WHERE id=?", (sid,))
+            c.commit()
+            c.close()
+            return self._redirect_home()
+
+        if path != "/scan":
+            return self._send(b"not found", 404)
         target = form.get("target", [""])[0].strip()
         kind = form.get("kind", ["nmap"])[0]
+        if kind not in ("web", "quick", "nmap"):
+            kind = "nmap"
         if not target:
             return self._send(b"target required", 400)
         c = db()
@@ -494,9 +554,7 @@ class Handler(BaseHTTPRequestHandler):
         sid = cur.lastrowid
         c.close()
         threading.Thread(target=run_scan, args=(sid, target, kind), daemon=True).start()
-        self.send_response(303)
-        self.send_header("Location", "/")
-        self.end_headers()
+        self._redirect_home()
 
 
 def _check() -> None:
