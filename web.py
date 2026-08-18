@@ -200,48 +200,252 @@ def _load_findings(scan_id: int) -> list[sm.Finding]:
     return out
 
 
-# --- HTML -------------------------------------------------------------------
-INDEX_CSS = """<style>
- body{font:14px/1.5 system-ui,sans-serif;margin:2rem;max-width:60rem}
- h1{margin-bottom:.2rem} form{margin:1rem 0;padding:1rem;background:#f6f6f6;border-radius:8px}
- input,select,button{font:inherit;padding:.4rem}
- input[name=target]{width:22rem}
- table{border-collapse:collapse;width:100%;margin-top:1rem}
- th,td{border:1px solid #ccc;padding:.4rem .6rem;text-align:left}
- th{background:#f4f4f4} .running{color:#b60} .done{color:#161}
- a{color:#06c}
-</style>"""
+# --- HTML / design system ---------------------------------------------------
+SEV_UI = ["critical", "high", "medium", "low", "info"]
+
+SITE_CSS = """
+:root{
+  --bg:#080b11; --bg2:#0c111a; --panel:#111926; --panel2:#0e1520;
+  --border:#1c2733; --border2:#28384a; --text:#e6edf3; --muted:#8b98a9;
+  --faint:#586472; --accent:#2ee6b6; --accent-dim:#134a3d; --accent2:#4aa8ff;
+  --crit:#ff4d6d; --high:#ff8f4a; --med:#f5c944; --low:#4aa8ff; --info:#7d8a99;
+  --crit-bg:#2a0e16; --high-bg:#2a170c; --med-bg:#292209; --low-bg:#0d1f30; --info-bg:#171d25;
+  --radius:14px; --mono:ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);
+  background-image:radial-gradient(circle at 1px 1px,rgba(46,230,182,.05) 1px,transparent 0);
+  background-size:26px 26px;-webkit-font-smoothing:antialiased;min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px 72px}
+
+/* header */
+header{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
+  background:linear-gradient(180deg,rgba(8,11,17,.92),rgba(8,11,17,.72));
+  border-bottom:1px solid var(--border)}
+.hdr{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
+.mark{width:34px;height:34px;flex:none}
+.brand{display:flex;flex-direction:column;line-height:1.1}
+.brand b{font-size:18px;letter-spacing:.3px}
+.brand span{font-size:11px;color:var(--muted);letter-spacing:.5px;text-transform:uppercase}
+.hdr .spacer{flex:1}
+.badge-auth{font:11px/1 var(--mono);color:var(--accent);border:1px solid var(--accent-dim);
+  background:rgba(46,230,182,.06);padding:6px 10px;border-radius:999px;letter-spacing:.4px}
+
+/* cards */
+.card{background:linear-gradient(180deg,var(--panel),var(--panel2));border:1px solid var(--border);
+  border-radius:var(--radius);padding:20px}
+h1.page{font-size:22px;margin:28px 0 4px;letter-spacing:.2px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 20px}
+
+/* scan form */
+.scan-form{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.scan-form .field{flex:1;min-width:280px;display:flex;flex-direction:column;gap:6px}
+label.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted)}
+input[type=text]{width:100%;font:14px var(--mono);color:var(--text);background:var(--bg2);
+  border:1px solid var(--border2);border-radius:10px;padding:12px 14px;outline:none;transition:border-color .15s,box-shadow .15s}
+input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(46,230,182,.15)}
+.seg{display:inline-flex;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:3px}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg label{font-size:13px;padding:9px 16px;border-radius:8px;cursor:pointer;color:var(--muted);
+  transition:background .15s,color .15s;white-space:nowrap}
+.seg input:checked+label{background:var(--accent);color:#04110d;font-weight:600}
+.seg input:focus-visible+label{outline:2px solid var(--accent);outline-offset:2px}
+.btn{font:600 14px var(--sans);color:#04110d;background:var(--accent);border:0;border-radius:10px;
+  padding:12px 22px;cursor:pointer;transition:transform .12s,filter .15s}
+.btn:hover{filter:brightness(1.08)}
+.btn:active{transform:translateY(1px)}
+.hint{color:var(--faint);font-size:12px;width:100%;margin-top:2px}
+
+/* stat tiles */
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:20px 0}
+.tile{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden}
+.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
+.tile .num{font:700 26px/1 var(--mono);color:var(--text)}
+.tile .lab{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none;box-shadow:0 0 8px var(--c)}
+.sev-critical{--c:var(--crit)} .sev-high{--c:var(--high)} .sev-medium{--c:var(--med)}
+.sev-low{--c:var(--low)} .sev-info{--c:var(--info)}
+
+/* severity distribution bar */
+.dist{display:flex;height:10px;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin:4px 0 22px}
+.dist span{display:block}
+
+/* table */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:6px;font-size:14px}
+.tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);
+  padding:10px 14px;border-bottom:1px solid var(--border)}
+.tbl td{padding:13px 14px;border-bottom:1px solid var(--border)}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tbody tr{transition:background .12s}
+.tbl tbody tr:hover{background:rgba(46,230,182,.03)}
+.mono{font-family:var(--mono);font-size:13px}
+.t-id{color:var(--faint);font-family:var(--mono)}
+
+/* pills + badges */
+.pill{display:inline-flex;align-items:center;gap:6px;font:600 11px var(--mono);text-transform:uppercase;
+  letter-spacing:.5px;padding:4px 9px;border-radius:999px;border:1px solid transparent}
+.pill.critical{color:var(--crit);background:var(--crit-bg);border-color:#4a1622}
+.pill.high{color:var(--high);background:var(--high-bg);border-color:#4a2913}
+.pill.medium{color:var(--med);background:var(--med-bg);border-color:#3d3410}
+.pill.low{color:var(--low);background:var(--low-bg);border-color:#123249}
+.pill.info{color:var(--info);background:var(--info-bg);border-color:#28323d}
+.status{display:inline-flex;align-items:center;gap:7px;font:12px var(--mono)}
+.status.running{color:var(--accent2)} .status.done{color:var(--accent)} .status.error{color:var(--crit)}
+.status .d{width:8px;height:8px;border-radius:50%;background:currentColor}
+.status.running .d{animation:pulse 1.1s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35;transform:scale(.8)}50%{opacity:1;transform:scale(1.15)}}
+.tools{display:flex;gap:5px;flex-wrap:wrap}
+.tag{font:600 11px var(--mono);color:var(--muted);background:var(--bg2);border:1px solid var(--border2);
+  padding:3px 8px;border-radius:6px;letter-spacing:.3px}
+.tag.nmap{color:#8fd3ff} .tag.zap{color:#ffb454} .tag.sqlmap{color:#ff7a8a} .tag.tshark{color:#8ff0c0}
+.rep-link{font:600 12px var(--sans);color:var(--accent);border:1px solid var(--accent-dim);
+  padding:6px 12px;border-radius:8px;transition:background .15s}
+.rep-link:hover{background:rgba(46,230,182,.08);text-decoration:none}
+.empty{color:var(--faint);text-align:center;padding:34px}
+
+/* findings (report) */
+.finding{display:flex;gap:0;background:var(--panel);border:1px solid var(--border);
+  border-radius:12px;margin-bottom:10px;overflow:hidden;animation:rise .3s ease both}
+.finding .accent{width:4px;background:var(--c);flex:none}
+.finding .body{padding:14px 16px;flex:1;min-width:0}
+.finding .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.finding .ftype{font-weight:600;font-size:15px}
+.finding .ftgt{font-family:var(--mono);font-size:12px;color:var(--muted);margin:7px 0;word-break:break-all}
+.finding .fev{font-size:13px;color:var(--muted);line-height:1.5;margin-top:6px}
+.finding .fev.code{font-family:var(--mono);font-size:12px;color:#a9c7ff;background:var(--bg2);
+  border:1px solid var(--border);border-radius:8px;padding:9px 11px;white-space:pre-wrap;word-break:break-all}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.section-h{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin:26px 0 12px}
+.back{font:13px var(--sans);color:var(--muted)}
+.steps{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:6px 18px}
+.steps li{margin:10px 0;font-size:14px}
+
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.wrap{padding:0 16px 48px}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+"""
+
+MESH_MARK = ('<svg class="mark" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">'
+  '<circle cx="20" cy="7" r="3.2" fill="#2ee6b6"/><circle cx="7" cy="30" r="3.2" fill="#4aa8ff"/>'
+  '<circle cx="33" cy="30" r="3.2" fill="#2ee6b6"/><circle cx="20" cy="21" r="2.6" fill="#e6edf3"/>'
+  '<path d="M20 7 20 21 7 30M20 21 33 30M7 30 33 30" stroke="#28384a" stroke-width="1.4"/></svg>')
+
+
+def _page(title: str, body: str, refresh: str = "") -> bytes:
+    return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
+            f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<title>{html.escape(title)}</title>{refresh}<style>{SITE_CSS}</style></head><body>"
+            f"<header><div class=hdr>{MESH_MARK}"
+            f"<div class=brand><b>ScanMesh</b><span>Security orchestrator</span></div>"
+            f"<div class=spacer></div><div class=badge-auth>authorized targets only</div>"
+            f"</div></header><div class=wrap>{body}</div></body></html>").encode()
+
+
+def _sev_counts(findings) -> dict:
+    return {s: sum(1 for f in findings if f.severity == s) for s in SEV_UI}
+
+
+def _stat_tiles(counts: dict) -> str:
+    return '<div class=stats>' + "".join(
+        f'<div class="tile sev-{s}"><div class=num>{counts.get(s,0)}</div>'
+        f'<div class=lab><span class=dot></span>{s}</div></div>' for s in SEV_UI) + '</div>'
+
+
+def _dist_bar(counts: dict) -> str:
+    total = sum(counts.values()) or 1
+    segs = "".join(
+        f'<span class="sev-{s}" style="width:{counts[s]/total*100:.1f}%;background:var(--c)"></span>'
+        for s in SEV_UI if counts.get(s))
+    return f'<div class=dist>{segs}</div>'
+
+
+def _tool_tags(tools) -> str:
+    return '<div class=tools>' + "".join(
+        f'<span class="tag {html.escape(t)}">{html.escape(t)}</span>' for t in sorted(tools)) + '</div>'
 
 
 def index_page() -> bytes:
     c = db()
     rows = c.execute("""SELECT id,target,kind,status,created FROM scans
         ORDER BY id DESC LIMIT 100""").fetchall()
+    counts = {s: 0 for s in SEV_UI}
+    for (sev,) in c.execute("SELECT severity FROM findings"):
+        if sev in counts:
+            counts[sev] += 1
     c.close()
+
+    def status_cell(st):
+        cls = "running" if st == "running" else ("error" if st.startswith("error") else "done")
+        return f'<span class="status {cls}"><span class=d></span>{html.escape(st)}</span>'
+
     trs = "".join(
-        f"<tr><td>{i}</td><td>{html.escape(t)}</td><td>{html.escape(k)}</td>"
-        f"<td class='{'running' if st=='running' else 'done'}'>{html.escape(st)}</td>"
-        f"<td>{html.escape(cr)}</td>"
-        f"<td><a href='/scan?id={i}'>report</a></td></tr>"
-        for i, t, k, st, cr in rows) or "<tr><td colspan=6>no scans yet</td></tr>"
-    # auto-refresh only while something is running, so the demo updates itself
-    refresh = "<meta http-equiv=refresh content=4>" if any(
-        r[3] == "running" for r in rows) else ""
-    page = f"""<!doctype html><meta charset=utf-8><title>ScanMesh</title>{refresh}{INDEX_CSS}
-<h1>ScanMesh</h1><p>Authorized targets only.</p>
-<form method=post action=/scan>
- <input name=target placeholder="192.168.1.10  or  http://host/path" required>
- <select name=kind>
-   <option value=nmap>Port scan (nmap)</option>
-   <option value=web>Web scan (nmap + ZAP + sqlmap)</option>
- </select>
- <button>Scan</button>
- <span style="color:#888">web scan needs the ZAP daemon running</span>
+        f"<tr><td class=t-id>#{i}</td><td class=mono>{html.escape(t)}</td>"
+        f"<td><span class=tag>{html.escape(k)}</span></td>"
+        f"<td>{status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
+        f"<td><a class=rep-link href='/scan?id={i}'>Report &rarr;</a></td></tr>"
+        for i, t, k, st, cr in rows)
+    tbody = trs or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
+    refresh = "<meta http-equiv=refresh content=4>" if any(r[3] == "running" for r in rows) else ""
+
+    body = f"""<h1 class=page>Scan console</h1>
+<p class=sub>Orchestrate nmap &middot; ZAP &middot; sqlmap &middot; tshark against one target &mdash; one correlated report.</p>
+<div class=card>
+<form class=scan-form method=post action=/scan>
+  <div class=field>
+    <label class=lbl for=target>Target</label>
+    <input id=target type=text name=target required
+      placeholder="http://host/path?id=1   or   192.168.1.10">
+  </div>
+  <div class=field style="flex:none">
+    <label class=lbl>Scan type</label>
+    <div class=seg>
+      <input type=radio name=kind id=k-web value=web checked><label for=k-web>Web scan</label>
+      <input type=radio name=kind id=k-nmap value=nmap><label for=k-nmap>Port scan</label>
+    </div>
+  </div>
+  <button class=btn type=submit>Run scan</button>
+  <div class=hint>Web scan runs the full chain and needs the ZAP daemon running. Authorized targets only.</div>
 </form>
-<table><tr><th>#</th><th>Target</th><th>Kind</th><th>Status</th><th>Created</th><th></th></tr>
-{trs}</table>
-<p style="color:#888">Refresh to update running scans.</p>"""
-    return page.encode()
+</div>
+{_stat_tiles(counts)}
+<div class=section-h>Scan history</div>
+<div class=card style="padding:6px 0">
+<table class=tbl><thead><tr><th>ID</th><th>Target</th><th>Type</th><th>Status</th><th>Started</th><th></th></tr></thead>
+<tbody>{tbody}</tbody></table>
+</div>"""
+    return _page("ScanMesh", body, refresh)
+
+
+def report_page(sid: int, target: str, findings, steps) -> bytes:
+    counts = _sev_counts(findings)
+    rows = sorted(findings, key=lambda f: -sm.SEV_ORDER.index(f.severity))
+    cards = []
+    for f in rows:
+        ev = html.escape(f.evidence or "")
+        code = " code" if f.tool in ("tshark", "sqlmap") or "\n" in (f.evidence or "") else ""
+        cards.append(
+            f'<div class="finding sev-{f.severity}"><div class=accent></div><div class=body>'
+            f'<div class=top><span class="pill {f.severity}">{f.severity}</span>'
+            f'<span class=ftype>{html.escape(f.finding_type)}</span></div>'
+            f'<div class=ftgt>{html.escape(f.target)}</div>'
+            f'{_tool_tags(f.tools)}'
+            + (f'<div class="fev{code}">{ev}</div>' if ev else '')
+            + '</div></div>')
+    findings_html = "".join(cards) or "<div class=empty>No findings.</div>"
+    steps_html = "".join(f"<li>{html.escape(s)}</li>" for s in steps) or "<li style='color:var(--faint)'>None — no follow-up actions.</li>"
+    total = sum(counts.values())
+    body = f"""<p class=back><a href="/">&larr; Console</a></p>
+<h1 class=page>Report</h1>
+<p class=sub><span class=mono>{html.escape(target)}</span> &middot; {total} findings</p>
+{_stat_tiles(counts)}
+{_dist_bar(counts)}
+<div class=section-h>Findings</div>
+{findings_html}
+<div class=section-h>Suggested next steps <span style="color:var(--faint)">(operator-run)</span></div>
+<ul class=steps>{steps_html}</ul>"""
+    return _page(f"Report - {target}", body)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -266,10 +470,10 @@ class Handler(BaseHTTPRequestHandler):
             c = db()
             row = c.execute("SELECT target FROM scans WHERE id=?", (sid,)).fetchone()
             c.close()
-            label = f"{row[0]} (scan #{sid})" if row else f"scan #{sid}"
+            label = f"{row[0]}" if row else f"scan #{sid}"
             findings = _load_findings(sid)
             steps = sm.next_steps(findings)
-            self._send(sm.render_report(findings, label, steps).encode())
+            self._send(report_page(sid, label, findings, steps))
         else:
             self._send(b"not found", 404)
 
