@@ -263,19 +263,26 @@ input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,1
 .btn:active{transform:translateY(1px)}
 .hint{color:var(--faint);font-size:12px;width:100%;margin-top:2px}
 
-/* stat tiles */
-.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:20px 0}
-.tile{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px 16px;position:relative;overflow:hidden}
-.tile::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c)}
-.tile .num{font:700 26px/1 var(--mono);color:var(--text)}
-.tile .lab{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-top:6px;display:flex;align-items:center;gap:6px}
-.dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none;box-shadow:0 0 8px var(--c)}
+/* severity color map (reused by ledger bar, legend, finding accents) */
 .sev-critical{--c:var(--crit)} .sev-high{--c:var(--high)} .sev-medium{--c:var(--med)}
 .sev-low{--c:var(--low)} .sev-info{--c:var(--info)}
 
-/* severity distribution bar */
-.dist{display:flex;height:10px;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin:4px 0 22px}
-.dist span{display:block}
+/* findings ledger (replaces the generic tile grid) */
+.summary{display:flex;align-items:center;gap:28px;margin:20px 0;padding:22px 26px}
+.sum-total{text-align:center;padding-right:28px;border-right:1px solid var(--border);flex:none}
+.sum-total .big{font:600 46px/1 var(--display);color:var(--text);letter-spacing:-1px}
+.sum-total .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-top:8px}
+.sum-body{flex:1;min-width:0}
+.sev-bar{display:flex;height:12px;border-radius:99px;overflow:hidden;background:var(--bg2);gap:2px}
+.sev-bar span{background:var(--c);min-width:4px}
+.legend{display:flex;flex-wrap:wrap;gap:10px 22px;margin-top:16px}
+.leg{display:flex;align-items:baseline;gap:8px}
+.leg i{width:9px;height:9px;border-radius:3px;background:var(--c);align-self:center}
+.leg .n{font:600 18px var(--display);color:var(--text);min-width:12px}
+.leg b{color:var(--muted);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.6px}
+.leg.zero{opacity:.42}
+@media (max-width:640px){.summary{flex-direction:column;align-items:stretch;gap:18px}
+  .sum-total{border-right:0;border-bottom:1px solid var(--border);padding:0 0 16px}}
 
 /* table */
 .tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:6px;font-size:14px}
@@ -370,18 +377,19 @@ def _sev_counts(findings) -> dict:
     return {s: sum(1 for f in findings if f.severity == s) for s in SEV_UI}
 
 
-def _stat_tiles(counts: dict) -> str:
-    return '<div class=stats>' + "".join(
-        f'<div class="tile sev-{s}"><div class=num>{counts.get(s,0)}</div>'
-        f'<div class=lab><span class=dot></span>{s}</div></div>' for s in SEV_UI) + '</div>'
-
-
-def _dist_bar(counts: dict) -> str:
-    total = sum(counts.values()) or 1
-    segs = "".join(
-        f'<span class="sev-{s}" style="width:{counts[s]/total*100:.1f}%;background:var(--c)"></span>'
+def _summary(counts: dict) -> str:
+    """Findings ledger: total + stacked severity meter + count legend."""
+    total = sum(counts.values())
+    bar = "".join(
+        f'<span class="sev-{s}" style="width:{counts[s]/max(total,1)*100:.1f}%"></span>'
         for s in SEV_UI if counts.get(s))
-    return f'<div class=dist>{segs}</div>'
+    legend = "".join(
+        f'<span class="leg sev-{s}{"" if counts.get(s) else " zero"}"><i></i>'
+        f'<span class=n>{counts.get(s,0)}</span><b>{s}</b></span>' for s in SEV_UI)
+    return (f'<div class="summary card"><div class=sum-total>'
+            f'<div class=big>{total}</div><div class=lbl>Findings</div></div>'
+            f'<div class=sum-body><div class=sev-bar>{bar}</div>'
+            f'<div class=legend>{legend}</div></div></div>')
 
 
 def _tool_tags(tools) -> str:
@@ -457,7 +465,7 @@ def index_page() -> bytes:
   <div class=hint>Full = crawl whole site (slow). Quick = single URL (fast). Web scans need the ZAP daemon running. Authorized targets only.</div>
 </form>
 </div>
-{_stat_tiles(counts)}
+{_summary(counts)}
 <div class=hist-head><div class=section-h>Scan history</div>{clear_all}</div>
 <div class=card style="padding:6px 0">
 <table class=tbl><thead><tr><th>ID</th><th>Target</th><th>Type</th><th>Status</th><th>Started</th><th></th></tr></thead>
@@ -487,8 +495,7 @@ def report_page(sid: int, target: str, findings, steps) -> bytes:
     body = f"""<p class=back><a href="/">&larr; Console</a></p>
 <h1 class=page>Report</h1>
 <p class=sub><span class=mono>{html.escape(target)}</span> &middot; {total} findings</p>
-{_stat_tiles(counts)}
-{_dist_bar(counts)}
+{_summary(counts)}
 <div class=section-h>Findings</div>
 {findings_html}
 <div class=section-h>Suggested next steps <span style="color:var(--faint)">(operator-run)</span></div>
