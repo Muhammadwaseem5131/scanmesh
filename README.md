@@ -1,5 +1,9 @@
 # ScanMesh
 
+![CI](https://github.com/USER/scanmesh/actions/workflows/ci.yml/badge.svg)
+![Python](https://img.shields.io/badge/python-3.11%2B-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
+
 A rule-based security-tool orchestrator. It chains free, industry-standard
 scanners — **nmap → OWASP ZAP → sqlmap → tshark** — into one pipeline that
 discovers hosts, scans web apps, confirms injection, captures evidence, then
@@ -7,6 +11,23 @@ correlates every tool's output into a single de-duplicated report.
 
 **100% deterministic. No AI/LLM anywhere in the pipeline.** Every decision is a
 plain `if`/lookup rule.
+
+```mermaid
+flowchart LR
+    T[Target] --> NMAP[nmap]
+    NMAP -->|web port| ZAP[OWASP ZAP]
+    ZAP -->|injection| SQL[sqlmap]
+    NMAP -.evidence.-> TS[tshark]
+    NMAP --> C[Correlate<br/>dedup + severity + confidence]
+    ZAP --> C
+    SQL --> C
+    TS --> C
+    C --> R[One report]
+```
+
+> **Screenshots:** run the UI (below) and drop `dashboard.png` / `report.png`
+> into `docs/img/` — they'll render here. Architecture detail:
+> [docs/architecture.md](docs/architecture.md).
 
 ## Authorized use only
 
@@ -81,7 +102,26 @@ an isolated VM/VLAN with no internet exposure.
 ## How it works
 
 Every connector normalizes to one `Finding` schema. `correlate()` merges
-findings that share `(target, finding_type)`, keeps the highest severity, and
-unions the contributing tools (more tools agreeing = higher confidence). The
-rule engine advises the next tool to run based on prior results
-(web port open → ZAP; ZAP finds SQLi → sqlmap). One HTML report comes out.
+findings on the same **endpoint** (host + path) belonging to the same **vuln
+family** — so ZAP's `SQL Injection - SQLite` and sqlmap's `SQL Injection` on the
+same URL collapse into one `critical` finding contributed by both tools (more
+tools agreeing = higher confidence). The rule engine advises the next tool to
+run based on prior results (web port open → ZAP; ZAP finds SQLi → sqlmap). One
+report comes out — in the web dashboard or as HTML.
+
+See [docs/architecture.md](docs/architecture.md) for the full design.
+
+## Testing
+
+```bash
+pytest                    # unit tests: parsers, correlation, web helpers
+python scanmesh.py --demo # offline self-check of every parser + rule
+python web.py --check     # web helper self-check
+```
+
+All three run with no external tools installed and are gated in CI on every
+push. The live connectors are verified end-to-end against the local demo target.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
