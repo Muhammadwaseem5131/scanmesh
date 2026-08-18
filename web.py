@@ -308,6 +308,8 @@ input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,1
 .rep-link{font:600 12px var(--sans);color:var(--accent);border:1px solid var(--accent-dim);
   padding:6px 12px;border-radius:8px;transition:background .15s;white-space:nowrap}
 .rep-link:hover{background:rgba(15,118,110,.08);text-decoration:none}
+.rep-link.disabled{opacity:.45;color:var(--faint);border-color:var(--border);
+  pointer-events:none;cursor:not-allowed;background:transparent}
 .empty{color:var(--faint);text-align:center;padding:34px}
 .warn{color:var(--med);cursor:help;font-size:13px}
 td.actions{white-space:nowrap}
@@ -408,19 +410,26 @@ def index_page() -> bytes:
         return f'<span class="status done"><span class=d></span>done</span>{warn}'
 
     kind_label = {"web": "full", "quick": "quick", "nmap": "ports"}
-    trs = "".join(
-        f"<tr><td class=t-id>#{i}</td><td class=mono>{html.escape(t)}</td>"
-        f"<td><span class=tag>{kind_label.get(k, html.escape(k))}</span></td>"
-        f"<td>{status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
-        f"<td class=actions><div class=act-row>"
-        f"<a class=rep-link href='/scan?id={i}'>Report &rarr;</a>"
-        f"<form method=post action=/delete onsubmit=\"return confirm('Delete scan #{i}?')\">"
-        f"<input type=hidden name=id value={i}>"
-        f"<button class=del type=submit title='Delete scan'>&#10005;</button></form>"
-        f"</div></td></tr>"
-        for i, t, k, st, cr in rows)
-    tbody = trs or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
-    refresh = "<meta http-equiv=refresh content=4>" if any(r[3] == "running" for r in rows) else ""
+    rows_html = []
+    for i, t, k, st, cr in rows:
+        report = (f"<a class=rep-link href='/scan?id={i}'>Report &rarr;</a>"
+                  if st != "running" else
+                  "<span class='rep-link disabled' title='Report ready when the scan finishes'>Report &rarr;</span>")
+        rows_html.append(
+            f"<tr><td class=t-id>#{i}</td><td class=mono>{html.escape(t)}</td>"
+            f"<td><span class=tag>{kind_label.get(k, html.escape(k))}</span></td>"
+            f"<td>{status_cell(st)}</td><td class=mono style='color:var(--faint)'>{html.escape(cr[:19])}</td>"
+            f"<td class=actions><div class=act-row>{report}"
+            f"<form method=post action=/delete onsubmit=\"return confirm('Delete scan #{i}?')\">"
+            f"<input type=hidden name=id value={i}>"
+            f"<button class=del type=submit title='Delete scan'>&#10005;</button></form>"
+            f"</div></td></tr>")
+    tbody = "".join(rows_html) or "<tr><td colspan=6 class=empty>No scans yet — run one above.</td></tr>"
+    # refresh statuses while a scan runs, but NOT while you're using the target
+    # box - so an in-progress scan never interrupts you starting another one
+    refresh = ("<script>setTimeout(function(){var t=document.getElementById('target');"
+               "if(!(t&&(t.value||document.activeElement===t)))location.reload();},4000);</script>"
+               ) if any(r[3] == "running" for r in rows) else ""
     clear_all = ("<form method=post action=/delete "
                  "onsubmit=\"return confirm('Delete ALL scan history?')\">"
                  "<input type=hidden name=all value=1>"
