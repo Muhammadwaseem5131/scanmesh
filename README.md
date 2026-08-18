@@ -38,8 +38,6 @@ result, not two vague duplicates.
 
 ## Demo
 
-▶ **[Watch the full-HD narrated walkthrough (~2 min)](docs/demo.mp4)**
-
 ![ScanMesh demo](docs/img/demo.gif)
 
 > Submit a target → nmap, ZAP, sqlmap and tshark run → one correlated report.
