@@ -223,12 +223,19 @@ body{margin:0;background:var(--bg);color:var(--text);font:15px/1.55 var(--sans);
   background-size:26px 26px;-webkit-font-smoothing:antialiased;min-height:100vh}
 a{color:var(--accent);text-decoration:none}
 a:hover{text-decoration:underline}
-.wrap{max-width:1120px;margin:0 auto;padding:0 24px 72px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px 72px;animation:fade .45s ease both}
+::selection{background:rgba(15,118,110,.18)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+*::-webkit-scrollbar{width:11px;height:11px}
+*::-webkit-scrollbar-thumb{background:#cfd8e3;border-radius:99px;border:3px solid var(--bg)}
+*::-webkit-scrollbar-thumb:hover{background:#b6c1cf}
+@keyframes fade{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 
 /* header */
-header{position:sticky;top:0;z-index:10;backdrop-filter:blur(10px);
+header{position:sticky;top:0;z-index:10;backdrop-filter:blur(12px) saturate(1.4);
   background:linear-gradient(180deg,rgba(245,247,251,.92),rgba(245,247,251,.72));
-  border-bottom:1px solid var(--border)}
+  border-bottom:1px solid var(--border);
+  border-top:3px solid;border-image:linear-gradient(90deg,var(--accent),#2563eb 55%,var(--accent)) 1}
 .hdr{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
 .mark{width:34px;height:34px;flex:none}
 .brand{display:flex;flex-direction:column;line-height:1.1}
@@ -262,6 +269,20 @@ input[type=text]:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(15,1
 .btn:hover{filter:brightness(1.08)}
 .btn:active{transform:translateY(1px)}
 .hint{color:var(--faint);font-size:12px;width:100%;margin-top:2px}
+.input-wrap{position:relative;display:flex;align-items:center}
+.input-wrap svg{position:absolute;left:14px;width:17px;height:17px;color:var(--faint);pointer-events:none}
+.input-wrap input[type=text]{padding-left:40px}
+.input-wrap:focus-within svg{color:var(--accent)}
+
+/* risk posture + grouped sections */
+.sum-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.sum-title{font-size:11px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted)}
+.posture{font:600 12px var(--sans);color:var(--c);background:var(--panel);
+  border:1px solid var(--c);border-radius:99px;padding:5px 13px;letter-spacing:.2px}
+.grp{display:flex;align-items:center;gap:10px;margin:24px 0 12px}
+.grp .bar{width:4px;height:16px;border-radius:2px;background:var(--c)}
+.grp .name{font:600 13px var(--sans);text-transform:uppercase;letter-spacing:.6px;color:var(--text)}
+.grp .cnt{font:600 12px var(--mono);color:var(--muted)}
 
 /* severity color map (reused by ledger bar, legend, finding accents) */
 .sev-critical{--c:var(--crit)} .sev-high{--c:var(--high)} .sev-medium{--c:var(--med)}
@@ -333,7 +354,9 @@ td.actions{white-space:nowrap}
 
 /* findings (report) */
 .finding{display:flex;gap:0;background:var(--panel);border:1px solid var(--border);
-  border-radius:12px;margin-bottom:10px;overflow:hidden;animation:rise .3s ease both}
+  border-radius:12px;margin-bottom:10px;overflow:hidden;animation:rise .3s ease both;
+  transition:box-shadow .15s,transform .15s}
+.finding:hover{box-shadow:var(--shadow);transform:translateX(2px)}
 .finding .accent{width:4px;background:var(--c);flex:none}
 .finding .body{padding:14px 16px;flex:1;min-width:0}
 .finding .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
@@ -356,6 +379,23 @@ MESH_MARK = ('<svg class="mark" viewBox="0 0 40 40" fill="none" xmlns="http://ww
   '<path d="M20 7 20 21 7 30M20 21 33 30M7 30 33 30" stroke="#94a3b8" stroke-width="1.4"/>'
   '<circle cx="20" cy="7" r="3.2" fill="#0f766e"/><circle cx="7" cy="30" r="3.2" fill="#2563eb"/>'
   '<circle cx="33" cy="30" r="3.2" fill="#0f766e"/><circle cx="20" cy="21" r="2.6" fill="#101b2d"/></svg>')
+
+
+CROSSHAIR = ('<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '
+  'stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'
+  '<circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>')
+
+# risk posture from the worst severity present -> (label, css sev class)
+def _posture(counts: dict):
+    if counts.get("critical"):
+        return "Critical exposure", "sev-critical"
+    if counts.get("high"):
+        return "Elevated risk", "sev-high"
+    if counts.get("medium") or counts.get("low"):
+        return "Low risk", "sev-low"
+    if sum(counts.values()):
+        return "Informational", "sev-info"
+    return "No findings", "sev-info"
 
 
 def _page(title: str, body: str, refresh: str = "") -> bytes:
@@ -386,9 +426,13 @@ def _summary(counts: dict) -> str:
     legend = "".join(
         f'<span class="leg sev-{s}{"" if counts.get(s) else " zero"}"><i></i>'
         f'<span class=n>{counts.get(s,0)}</span><b>{s}</b></span>' for s in SEV_UI)
+    word, cls = _posture(counts)
     return (f'<div class="summary card"><div class=sum-total>'
             f'<div class=big>{total}</div><div class=lbl>Findings</div></div>'
-            f'<div class=sum-body><div class=sev-bar>{bar}</div>'
+            f'<div class=sum-body>'
+            f'<div class=sum-head><span class=sum-title>Risk posture</span>'
+            f'<span class="posture {cls}">{word}</span></div>'
+            f'<div class=sev-bar>{bar}</div>'
             f'<div class=legend>{legend}</div></div></div>')
 
 
@@ -450,8 +494,8 @@ def index_page() -> bytes:
 <form class=scan-form method=post action=/scan>
   <div class=field>
     <label class=lbl for=target>Target</label>
-    <input id=target type=text name=target required
-      placeholder="http://host/path?id=1   or   192.168.1.10">
+    <div class=input-wrap>{CROSSHAIR}<input id=target type=text name=target required
+      placeholder="http://host/path?id=1   or   192.168.1.10"></div>
   </div>
   <div class=field style="flex:none">
     <label class=lbl>Scan type</label>
@@ -476,12 +520,11 @@ def index_page() -> bytes:
 
 def report_page(sid: int, target: str, findings, steps) -> bytes:
     counts = _sev_counts(findings)
-    rows = sorted(findings, key=lambda f: -sm.SEV_ORDER.index(f.severity))
-    cards = []
-    for f in rows:
+
+    def card(f):
         ev = html.escape(f.evidence or "")
         code = " code" if f.tool in ("tshark", "sqlmap") or "\n" in (f.evidence or "") else ""
-        cards.append(
+        return (
             f'<div class="finding sev-{f.severity}"><div class=accent></div><div class=body>'
             f'<div class=top><span class="pill {f.severity}">{f.severity}</span>'
             f'<span class=ftype>{html.escape(f.finding_type)}</span></div>'
@@ -489,7 +532,18 @@ def report_page(sid: int, target: str, findings, steps) -> bytes:
             f'{_tool_tags(f.tools)}'
             + (f'<div class="fev{code}">{ev}</div>' if ev else '')
             + '</div></div>')
-    findings_html = "".join(cards) or "<div class=empty>No findings.</div>"
+
+    # group findings under a severity header, worst first
+    groups = []
+    for s in SEV_UI:
+        fs = sorted((f for f in findings if f.severity == s), key=lambda f: f.finding_type)
+        if not fs:
+            continue
+        groups.append(
+            f'<div class="grp sev-{s}"><span class=bar></span>'
+            f'<span class=name>{s}</span><span class=cnt>{len(fs)}</span></div>'
+            + "".join(card(f) for f in fs))
+    findings_html = "".join(groups) or "<div class=empty>No findings.</div>"
     steps_html = "".join(f"<li>{html.escape(s)}</li>" for s in steps) or "<li style='color:var(--faint)'>None — no follow-up actions.</li>"
     total = sum(counts.values())
     body = f"""<p class=back><a href="/">&larr; Console</a></p>
