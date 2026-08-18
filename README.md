@@ -1,6 +1,6 @@
 # ScanMesh
 
-![CI](https://github.com/USER/scanmesh/actions/workflows/ci.yml/badge.svg)
+![CI](https://github.com/Muhammadwaseem5131/scanmesh/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
