@@ -155,7 +155,7 @@ Shop, Metasploitable2 — inside an isolated VM/VLAN.
 
 ## Roadmap / known limits
 
-- One ZAP daemon → concurrent scans serialize *(add per-scan sessions if needed)*
+- Scans run one at a time — a lock serializes them, since a single ZAP daemon can't run concurrent active scans cleanly *(add per-scan ZAP sessions for parallelism)*
 - SQLite → single host *(Postgres when multi-user)*
 - Acunetix/Burp connectors written but **untested** — commercial licenses; parsers pass on sample data, treated as planned enterprise integrations
 - No Docker — tshark's Npcap driver doesn't containerize on Windows (deliberate non-goal)

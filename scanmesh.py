@@ -286,7 +286,10 @@ def zap_scan(url: str, api_key: str, base: str = "http://localhost:8080",
             time.sleep(5)
 
     if quick:
-        call("/JSON/core/action/accessUrl/", url=url)  # seed just this URL
+        # Seed just this URL with a shallow spider, then active-scan only that
+        # node. (core/accessUrl proved unreliable - it can return Internal Error,
+        # leaving the URL "not found in the scan tree".)
+        wait("spider", call("/JSON/spider/action/scan/", url=url, maxChildren="2")["scan"])
         wait("ascan", call("/JSON/ascan/action/scan/", url=url, recurse="false")["scan"])
     else:
         wait("spider", call("/JSON/spider/action/scan/", url=url)["scan"])

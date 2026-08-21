@@ -86,8 +86,20 @@ def _capture_iface(target: str) -> str | None:
         return None
 
 
+# One scan executes at a time: a single ZAP daemon can't run concurrent active
+# scans without interfering. Submissions still return instantly; extra scans
+# queue on this lock and run in order.
+# ponytail: global lock, fine for one operator; per-ZAP-session if throughput matters.
+_SCAN_LOCK = threading.Lock()
+
+
 # --- the scan pipeline, run off-thread so the HTTP request returns at once ---
 def run_scan(scan_id: int, target: str, kind: str) -> None:
+    with _SCAN_LOCK:
+        _execute_scan(scan_id, target, kind)
+
+
+def _execute_scan(scan_id: int, target: str, kind: str) -> None:
     findings: list[sm.Finding] = []
     notes = []
     host = _host(target)
@@ -453,6 +465,17 @@ POLL_SCRIPT = ("<script>(function(){function p(){fetch('/rows').then(r=>r.json()
 _KIND_LABEL = {"web": "full", "quick": "quick", "nmap": "ports"}
 
 
+def _reap_running() -> None:
+    """A scan runs in a background thread; if the server restarts mid-scan the
+    thread is gone but its row stays 'running' forever. Mark those interrupted.
+    (db() also creates the tables, so this doubles as startup init.)"""
+    c = db()
+    c.execute("UPDATE scans SET status='error: interrupted (server restarted)' "
+              "WHERE status='running'")
+    c.commit()
+    c.close()
+
+
 def _counts() -> dict:
     c = db()
     counts = {s: 0 for s in SEV_UI}
@@ -553,10 +576,20 @@ def report_page(sid: int, target: str, findings, steps) -> bytes:
             + (f'<div class="fev{code}">{ev}</div>' if ev else '')
             + '</div></div>')
 
+    # cap the rendered cards so a huge scan (thousands of findings) stays fast;
+    # counts/ledger still reflect the true total, criticals are never dropped.
+    CAP = 400
+    shown, cap_note = findings, ""
+    if len(findings) > CAP:
+        shown = sorted(findings, key=lambda f: sm.SEV_ORDER.index(f.severity),
+                       reverse=True)[:CAP]
+        cap_note = (f' <span style="color:var(--faint);font-weight:400">'
+                    f'&mdash; showing the {CAP} highest-severity of {len(findings)}</span>')
+
     # group findings under a severity header, worst first
     groups = []
     for s in SEV_UI:
-        fs = sorted((f for f in findings if f.severity == s), key=lambda f: f.finding_type)
+        fs = sorted((f for f in shown if f.severity == s), key=lambda f: f.finding_type)
         if not fs:
             continue
         groups.append(
@@ -570,7 +603,7 @@ def report_page(sid: int, target: str, findings, steps) -> bytes:
 <h1 class=page>Report</h1>
 <p class=sub><span class=mono>{html.escape(target)}</span> &middot; {total} findings</p>
 {_summary(counts)}
-<div class=section-h>Findings</div>
+<div class=section-h>Findings{cap_note}</div>
 {findings_html}
 <div class=section-h>Suggested next steps <span style="color:var(--faint)">(operator-run)</span></div>
 <ul class=steps>{steps_html}</ul>"""
@@ -674,6 +707,6 @@ if __name__ == "__main__":
     if "--check" in sys.argv:
         _check()
     else:
-        db().close()  # ensure tables exist
+        _reap_running()  # ensure tables exist + clear scans stranded by a restart
         print("ScanMesh UI -> http://127.0.0.1:8000  (Ctrl+C to stop)")
         ThreadingHTTPServer(("127.0.0.1", 8000), Handler).serve_forever()
