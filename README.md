@@ -2,7 +2,7 @@
 
 # 🛰️ ScanMesh
 
-**A rule-based security-tool orchestrator — five scanners, one correlated report.**
+**A rule-based security-tool orchestrator — four scanners, one correlated report.**
 
 ![CI](https://github.com/Muhammadwaseem5131/scanmesh/actions/workflows/ci.yml/badge.svg)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
@@ -19,7 +19,7 @@
 
 A penetration tester runs each tool by hand — `nmap`, then a web scanner, then
 `sqlmap`, then a packet capture — copies output between them, and manually
-writes up five separate tool dumps into one report. It's slow, repetitive, and
+writes up four separate tool dumps into one report. It's slow, repetitive, and
 easy to miss that **two tools found the same thing.**
 
 ## The solution
@@ -87,7 +87,7 @@ it correlates into one high-confidence finding contributed by both tools.**
 
 ## Features
 
-- **Five connectors** — nmap · OWASP ZAP · sqlmap · tshark (+ optional Acunetix/Burp)
+- **Four connectors** — nmap · OWASP ZAP · sqlmap · tshark (+ optional Acunetix/Burp)
 - **Correlation engine** — de-dup by endpoint + vuln family, keep max severity, union tools
 - **Rule engine** — deterministic "run this next" (web port → ZAP; SQLi → sqlmap)
 - **Risk posture** — every report states a verdict: *Critical exposure → Informational*
